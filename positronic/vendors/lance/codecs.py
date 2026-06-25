@@ -12,6 +12,7 @@ from positronic.cfg import codecs as base
 from positronic.dataset.episode import Episode
 from positronic.dataset.transforms.episode import Derive, EpisodeTransform, Get
 from positronic.policy.codec import Codec
+from positronic.policy.observation import ObservationCodec
 
 
 def _random_uuid(_episode: Episode) -> str:
@@ -39,3 +40,33 @@ def _compose(obs, action, fps: float, horizon: float | None, binarize_grip, uuid
 
 
 ee = _compose.override(obs=base.eepose_obs.override(image_size=(512, 512)), action=base.absolute_pos_action)
+
+
+@cfn.config(image_size=(512, 512))
+def ee_joints_obs(image_size):
+    """Observation encoder emitting EE-pose and joint-position state in delineated columns."""
+    return ObservationCodec(
+        state={
+            'observation.state_ee': {'robot_state.ee_pose': 7, 'grip': 1},
+            'observation.state_joints': {'robot_state.q': 7, 'grip': 1},
+        },
+        images={
+            'observation.images.left': ('image.wrist', tuple(image_size)),
+            'observation.images.side': ('image.exterior', tuple(image_size)),
+        },
+    )
+
+
+@cfn.config(
+    action_ee=base.absolute_pos_action.override(action_key='action_ee'),
+    action_joints=base.ik_joints_action.override(action_key='action_joints', solver='lm'),
+)
+def ee_joints_action(action_ee, action_joints):
+    """Absolute EE-pose action and IK-reconstructed joint action in delineated columns."""
+    return action_ee & action_joints
+
+
+# Single-pass codec writing both representations: EE columns (`*_ee`) come from the recorded
+# end-effector pose/command, joint columns (`*_joints`) from the recorded joint state and an
+# IK reconstruction of the commanded pose. Aligned by construction (one resampling grid).
+ee_joints = _compose.override(obs=ee_joints_obs, action=ee_joints_action, uuid=True)

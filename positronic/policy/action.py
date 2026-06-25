@@ -26,19 +26,26 @@ def _relative_rot_vec(q_current: np.ndarray, q_target: np.ndarray, representatio
 
 
 class AbsolutePositionAction(Codec):
-    def __init__(self, tgt_ee_pose_key: str, tgt_grip_key: str, rotation_rep: RotRep | str = RotRep.QUAT):
+    def __init__(
+        self,
+        tgt_ee_pose_key: str,
+        tgt_grip_key: str,
+        rotation_rep: RotRep | str = RotRep.QUAT,
+        action_key: str = 'action',
+    ):
         self.rot_rep = RotRep(rotation_rep)
         self.tgt_ee_pose_key = tgt_ee_pose_key
         self.tgt_grip_key = tgt_grip_key
+        self.action_key = action_key
 
         ee_dim = self.rot_rep.size + 3
-        self._training_meta = {'lerobot_features': {'action': lerobot_action(ee_dim + 1)}}
+        self._training_meta = {'lerobot_features': {action_key: lerobot_action(ee_dim + 1)}}
 
     def encode(self, data):
         return {}
 
     def _decode_single(self, data: dict, context: dict | None) -> dict:
-        action_vector = data['action']
+        action_vector = data[self.action_key]
         target_pose = geom.Transform3D.from_vector(action_vector[:-1], self.rot_rep)
         target_grip = action_vector[-1].item()
         return {'robot_command': command.CartesianPosition(pose=target_pose), 'target_grip': target_grip}
@@ -50,22 +57,23 @@ class AbsolutePositionAction(Codec):
 
     @property
     def training_encoder(self):
-        return Derive(meta=self._training_meta, action=self._encode_episode)
+        return Derive(meta=self._training_meta, **{self.action_key: self._encode_episode})
 
 
 class AbsoluteJointsAction(Codec):
-    def __init__(self, tgt_joints_key: str, tgt_grip_key: str, num_joints: int = 7):
+    def __init__(self, tgt_joints_key: str, tgt_grip_key: str, num_joints: int = 7, action_key: str = 'action'):
         self.tgt_joints_key = tgt_joints_key
         self.tgt_grip_key = tgt_grip_key
         self.num_joints = num_joints
+        self.action_key = action_key
 
-        self._training_meta = {'lerobot_features': {'action': lerobot_action(num_joints + 1)}}
+        self._training_meta = {'lerobot_features': {action_key: lerobot_action(num_joints + 1)}}
 
     def encode(self, data):
         return {}
 
     def _decode_single(self, data: dict, context: dict | None) -> dict:
-        action_vector = data['action']
+        action_vector = data[self.action_key]
         if action_vector.shape[-1] != self.num_joints + 1:
             raise ValueError(f'Expected action vector of size {self.num_joints + 1}, got {action_vector.shape[-1]}')
 
@@ -78,7 +86,7 @@ class AbsoluteJointsAction(Codec):
 
     @property
     def training_encoder(self):
-        return Derive(meta=self._training_meta, action=self._encode_episode)
+        return Derive(meta=self._training_meta, **{self.action_key: self._encode_episode})
 
 
 class IKJointsAction(Codec):
