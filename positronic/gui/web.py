@@ -74,38 +74,46 @@ def _tile(frames: list[np.ndarray], width: int) -> np.ndarray:
 
 
 class _LatestFrame:
-    """The most recent tiled frame, shared from the control-loop thread to the server's WebRTC encoder tasks."""
+    """The most recent tiled frame, shared from the control-loop thread to the server's WebRTC encoder tasks.
+
+    ``publish`` stores the frame before bumping ``seq`` so a consumer that observes the new sequence number
+    always reads the new frame; consumers poll the counter at 2 ms rather than parking on cross-thread wakeups.
+    """
 
     def __init__(self):
         self.array: np.ndarray | None = None
+        self.seq = 0
 
-    async def wait(self) -> np.ndarray:
-        while self.array is None:
-            await asyncio.sleep(0.05)
-        return self.array
+    def publish(self, array: np.ndarray) -> None:
+        self.array = array
+        self.seq += 1
+
+    async def next_frame(self, last_seq: int) -> tuple[int, np.ndarray]:
+        while self.seq == last_seq:
+            await asyncio.sleep(0.002)
+        return self.seq, self.array
 
 
 class _TileTrack(VideoStreamTrack):
-    """Paces the latest tiled frame out as a WebRTC video track (each subscriber gets its own encoder)."""
+    """Sends each freshly published tile as a WebRTC video frame (each subscriber gets its own encoder).
 
-    def __init__(self, latest: _LatestFrame, fps: int):
+    Event-driven rather than paced: a frame goes out the moment the console publishes it, so the stream
+    rate follows the camera rate and no frame sits out a pacing tick.
+    """
+
+    def __init__(self, latest: _LatestFrame):
         super().__init__()
         self._latest = latest
-        self._fps = fps
-        self._started: float | None = None
-        self._count = 0
+        self._seq = 0
+        self._epoch: float | None = None
 
     async def recv(self) -> av.VideoFrame:
-        rgb = await self._latest.wait()
+        self._seq, rgb = await self._latest.next_frame(self._seq)
         now = time.monotonic()
-        if self._started is None:
-            self._started = now
-        self._count += 1
-        target = self._started + self._count / self._fps
-        if target > now:
-            await asyncio.sleep(target - now)
+        if self._epoch is None:
+            self._epoch = now
         frame = av.VideoFrame.from_ndarray(rgb, format='rgb24')
-        frame.pts = int(self._count * _VIDEO_CLOCK / self._fps)
+        frame.pts = int((now - self._epoch) * _VIDEO_CLOCK)
         frame.time_base = fractions.Fraction(1, _VIDEO_CLOCK)
         return frame
 
@@ -181,7 +189,7 @@ class WebEvalUI(pimm.ControlSystem):
                     await pc.close()
                     pcs.discard(pc)
 
-            pc.addTrack(_TileTrack(latest, self.fps))
+            pc.addTrack(_TileTrack(latest))
             await pc.setRemoteDescription(RTCSessionDescription(sdp=body.sdp, type=body.type))
             await pc.setLocalDescription(await pc.createAnswer())
             return {'sdp': pc.localDescription.sdp, 'type': pc.localDescription.type}
@@ -234,6 +242,9 @@ class WebEvalUI(pimm.ControlSystem):
         print(banner)
 
         try:
+            # Poll the camera channels much faster than the frame rate so a frame never sits out a
+            # sampling tick; ``fps`` only caps how often the (CPU-priced) tile + encode fires.
+            last_emit = 0.0
             while not should_stop.value:
                 changed = False
                 for name in names:
@@ -241,11 +252,13 @@ class WebEvalUI(pimm.ControlSystem):
                     if cam_msg.data is not None and cam_msg.updated:
                         frames[name] = cam_msg.data.array
                         changed = True
-                if changed and len(frames) == len(names):
-                    latest.array = _tile([frames[name] for name in names], self.width)
+                now = time.monotonic()
+                if changed and len(frames) == len(names) and now - last_emit >= 1 / self.fps:
+                    latest.publish(_tile([frames[name] for name in names], self.width))
+                    last_emit = now
                 if not server_thread.is_alive():
                     raise RuntimeError('Web eval server thread died')
-                yield pimm.Sleep(1 / self.fps)
+                yield pimm.Sleep(0.005)
         finally:
             server.should_exit = True
             server_thread.join()
