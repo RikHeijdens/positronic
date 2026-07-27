@@ -66,13 +66,12 @@ def keyboard(show_gui, task):
     port=8080,
     fps=20,
     width=640,
-    bitrate=2_000_000,
     translation_fine=0.01,
     translation_coarse=0.05,
     rotation_fine=2.0,
     rotation_coarse=10.0,
 )
-def web(port, fps, width, bitrate, translation_fine, translation_coarse, rotation_fine, rotation_coarse, task):
+def web(port, fps, width, translation_fine, translation_coarse, rotation_fine, rotation_coarse, task):
     def make(output_dir: Path | None, embodiment: Embodiment) -> Driver:
         prefix = 'robot_command.'
         arms = [name.removeprefix(prefix) for name in embodiment.commands if name.startswith(prefix)]
@@ -82,7 +81,6 @@ def web(port, fps, width, bitrate, translation_fine, translation_coarse, rotatio
             port=port,
             fps=fps,
             width=width,
-            bitrate=bitrate,
             translation_fine=translation_fine,
             translation_coarse=translation_coarse,
             rotation_fine=rotation_fine,

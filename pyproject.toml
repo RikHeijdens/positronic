@@ -15,6 +15,7 @@ classifiers = [
   "Programming Language :: Python :: 3 :: Only",
 ]
 dependencies = [
+    "aiortc",
     "av",
     "coloredlogs>=15.0.1",
     "configuronic>=0.5.0",
