@@ -173,5 +173,7 @@ class SLCamera(pimm.ControlSystem):
                                 self.depth.emit(self._depth_adapter, ts=ts_s)
 
             fps_counter.tick()
-            yield pimm.Sleep(0.01)
+            # `grab()` blocks until the next frame, so it paces the loop; sleeping longer here only
+            # lets the freshly captured frame age in the SDK buffer.
+            yield pimm.Sleep(0.001)
         zed.close()
