@@ -243,19 +243,32 @@ class WebEvalUI(pimm.ControlSystem):
 
         try:
             # Poll the camera channels much faster than the frame rate so a frame never sits out a
-            # sampling tick; ``fps`` only caps how often the (CPU-priced) tile + encode fires.
+            # sampling tick; ``fps`` only caps how often the (CPU-priced) tile + encode fires. A frame
+            # arriving while the cap is closed stays pending and goes out the moment it reopens —
+            # otherwise it would be dropped and the stream would sit stale until the next camera frame.
             last_emit = 0.0
+            pending = False
+            stamps: dict[str, float] = {}
+            last_age_log = 0.0
             while not should_stop.value:
-                changed = False
                 for name in names:
                     cam_msg = self.cameras[name].read()
                     if cam_msg.data is not None and cam_msg.updated:
                         frames[name] = cam_msg.data.array
-                        changed = True
+                        stamps[name] = cam_msg.ts
+                        pending = True
                 now = time.monotonic()
-                if changed and len(frames) == len(names) and now - last_emit >= 1 / self.fps:
+                if pending and len(frames) == len(names) and now - last_emit >= 1 / self.fps:
                     latest.publish(_tile([frames[name] for name in names], self.width))
                     last_emit = now
+                    pending = False
+                    if now - last_age_log >= 5.0:
+                        # Camera drivers stamp frames with the sensor's epoch-based capture time, so
+                        # wall-clock minus stamp is the capture-to-publish latency (pre-WebRTC).
+                        wall = time.time()
+                        ages = ', '.join(f'{name}={(wall - stamps[name]) * 1000:.0f}ms' for name in names)
+                        print(f'Frame age at publish: {ages}', flush=True)
+                        last_age_log = now
                 if not server_thread.is_alive():
                     raise RuntimeError('Web eval server thread died')
                 yield pimm.Sleep(0.005)
