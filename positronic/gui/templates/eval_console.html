@@ -187,12 +187,21 @@
 
         const connect = async () => {
           const pc = new RTCPeerConnection();
-          pc.addTransceiver('video', { direction: 'recvonly' });
+          const transceiver = pc.addTransceiver('video', { direction: 'recvonly' });
+          // Pin the offer to VP8: aiortc's VP8 encoder is realtime-tuned (cpu-used -6, no lag-in-frames)
+          // while its H264 path runs libx264 at the slow default preset. Which codec wins otherwise
+          // depends on the browser's offer order.
+          if (transceiver.setCodecPreferences && window.RTCRtpReceiver?.getCapabilities) {
+            const codecs = RTCRtpReceiver.getCapabilities('video').codecs;
+            const preferred = codecs.filter((c) => ['video/VP8', 'video/rtx'].includes(c.mimeType));
+            if (preferred.some((c) => c.mimeType === 'video/VP8')) transceiver.setCodecPreferences(preferred);
+          }
 
           pc.addEventListener('track', (event) => {
             // Run the playout buffer as hot as the link allows — the default target absorbs WAN-grade
             // jitter this LAN feed doesn't have.
             if ('jitterBufferTarget' in event.receiver) event.receiver.jitterBufferTarget = 0;
+            if ('playoutDelayHint' in event.receiver) event.receiver.playoutDelayHint = 0;
             video.srcObject = event.streams[0];
             video.play().catch(() => {});
           });
