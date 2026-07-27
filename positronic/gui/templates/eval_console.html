@@ -20,6 +20,16 @@
           <div id="stream-status" class="stream-status"></div>
         </figure>
         <aside class="jog" id="jog">
+          {% if arms %}
+          <section class="jog-section">
+            <h2 class="jog-title">Arm</h2>
+            <div class="jog-toggle" id="arm">
+              {% for arm in arms %}
+              <button class="btn btn-ghost jog-btn{% if loop.first %} is-active{% endif %}" data-arm="{{ arm }}">{{ arm | capitalize }}</button>
+              {% endfor %}
+            </div>
+          </section>
+          {% endif %}
           <section class="jog-section">
             <h2 class="jog-title">Translation</h2>
             <div class="jog-cross">
@@ -73,6 +83,7 @@
     <script>
       const jog = document.getElementById('jog');
       let scale = 'fine';
+      let arm = document.querySelector('[data-arm].is-active')?.dataset.arm ?? null;
       let running = false;
 
       const setRunning = (value) => {
@@ -92,6 +103,15 @@
         });
       }
 
+      for (const button of document.querySelectorAll('[data-arm]')) {
+        button.addEventListener('click', () => {
+          arm = button.dataset.arm;
+          for (const other of document.querySelectorAll('[data-arm]')) {
+            other.classList.toggle('is-active', other === button);
+          }
+        });
+      }
+
       for (const button of document.querySelectorAll('[data-scale]')) {
         button.addEventListener('click', () => {
           scale = button.dataset.scale;
@@ -106,7 +126,7 @@
           fetch('/jog', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ axis: button.dataset.axis, sign: Number(button.dataset.sign), scale }),
+            body: JSON.stringify({ axis: button.dataset.axis, sign: Number(button.dataset.sign), scale, arm }),
           });
         });
       }
@@ -118,7 +138,7 @@
         fetch('/grip', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ value }),
+          body: JSON.stringify({ value, arm }),
         });
       };
 

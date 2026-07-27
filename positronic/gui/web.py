@@ -1,7 +1,7 @@
 import asyncio
 import queue
 import threading
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Literal
 
@@ -24,10 +24,12 @@ class _JogBody(BaseModel):
     axis: Literal['x', 'y', 'z', 'rx', 'ry', 'rz']
     sign: Literal[-1, 1]
     scale: Literal['fine', 'coarse']
+    arm: str | None = None
 
 
 class _GripBody(BaseModel):
     value: float = Field(ge=0.0, le=1.0)
+    arm: str | None = None
 
 
 _TRANSLATION_AXES = {'x': 0, 'y': 1, 'z': 2}
@@ -188,11 +190,16 @@ class WebEvalUI(pimm.ControlSystem):
     Tiles the live eval cameras into a single H.264 stream served to a browser and turns Start/Finish/Abort
     presses into harness directives. A drop-in directive source replacing the dearpygui/keyboard drivers,
     reachable over an SSH tunnel or directly on the host IP.
+
+    ``arms`` names the per-arm command-channel suffixes of a multi-arm embodiment (``robot_command.{arm}``,
+    ``target_grip.{arm}``); the console then shows an arm selector and jog/grip drive the selected arm. Empty
+    ``arms`` targets the bare single-arm channels.
     """
 
     def __init__(
         self,
         task: str | None = None,
+        arms: Sequence[str] = (),
         port=8080,
         fps=20,
         width=640,
@@ -204,6 +211,7 @@ class WebEvalUI(pimm.ControlSystem):
         rotation_coarse=10.0,
     ):
         self.task = task
+        self.arms = tuple(arms)
         self.port = port
         self.fps = fps
         self.width = width
@@ -217,6 +225,14 @@ class WebEvalUI(pimm.ControlSystem):
         self.directive = pimm.ControlSystemEmitter(self)
         self.manual_command = pimm.ControlSystemEmitter(self)
 
+    def _channel(self, base: str, arm: str | None) -> str:
+        """The harness command channel for a manual command: per-arm suffixed when the embodiment has arms."""
+        if not self.arms:
+            return base
+        if arm not in self.arms:
+            raise HTTPException(status_code=422, detail=f'arm must be one of {list(self.arms)}')
+        return f'{base}.{arm}'
+
     def run(self, should_stop: pimm.SignalReceiver, clock: pimm.Clock) -> Iterator[pimm.Sleep]:
         templates = Jinja2Templates(directory=_pkg_path('templates'))
         names = list(self.cameras)
@@ -229,7 +245,7 @@ class WebEvalUI(pimm.ControlSystem):
 
         @app.get('/', response_class=HTMLResponse)
         async def index(request: Request):
-            return templates.TemplateResponse(request, 'eval_console.html')
+            return templates.TemplateResponse(request, 'eval_console.html', {'arms': list(self.arms)})
 
         @app.websocket('/video')
         async def video(websocket: WebSocket):
@@ -277,11 +293,12 @@ class WebEvalUI(pimm.ControlSystem):
                 rotvec = np.zeros(3)
                 rotvec[_ROTATION_AXES[body.axis]] = np.deg2rad(body.sign * angle)
                 delta = geom.Transform3D(rotation=geom.Rotation.from_rotvec(rotvec))
-            self.manual_command.emit({'robot_command': command.CartesianDelta(delta)}, clock.now_ns())
+            channel = self._channel('robot_command', body.arm)
+            self.manual_command.emit({channel: command.CartesianDelta(delta)}, clock.now_ns())
 
         @app.post('/grip')
         async def grip(body: _GripBody):
-            self.manual_command.emit({'target_grip': body.value}, clock.now_ns())
+            self.manual_command.emit({self._channel('target_grip', body.arm): body.value}, clock.now_ns())
 
         # The legacy asyncio `websockets` backend drains the transport from its reader and keepalive
         # coroutines concurrently with our send loop, tripping an assertion that kills the feed. The

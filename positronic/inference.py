@@ -13,6 +13,7 @@ import positronic.cfg.wrappers as wrappers_cfg
 from positronic.cfg.eval.sim.positronic import stack_cubes
 from positronic.cli.eval.run import Driver, main, run
 from positronic.dataset.local_dataset import load_all_datasets
+from positronic.eval import Embodiment
 from positronic.gui.dpg import DearpyguiUi
 from positronic.gui.eval import EvalUI
 from positronic.gui.keyboard import KeyboardControl
@@ -38,7 +39,7 @@ class KeyboardHandler:
 
 @cfn.config(ui_scale=1)
 def eval_ui(ui_scale):
-    def make(output_dir: Path | None) -> Driver:
+    def make(output_dir: Path | None, embodiment: Embodiment) -> Driver:
         gui = EvalUI(output_dir, ui_scale=ui_scale)
         return Driver(gui, gui.directive, pimm.utils.identity, [])
 
@@ -47,7 +48,7 @@ def eval_ui(ui_scale):
 
 @cfn.config(show_gui=False)
 def keyboard(show_gui, task):
-    def make(output_dir: Path | None) -> Driver:
+    def make(output_dir: Path | None, embodiment: Embodiment) -> Driver:
         keyboard = KeyboardControl(quit_key='q')
         keyboard_handler = KeyboardHandler(task=task)
         print('Keyboard controls: [s]tart, sto[p], abo[r]t, [q]uit')
@@ -72,9 +73,12 @@ def keyboard(show_gui, task):
     rotation_coarse=10.0,
 )
 def web(port, fps, width, bitrate, translation_fine, translation_coarse, rotation_fine, rotation_coarse, task):
-    def make(output_dir: Path | None) -> Driver:
+    def make(output_dir: Path | None, embodiment: Embodiment) -> Driver:
+        prefix = 'robot_command.'
+        arms = [name.removeprefix(prefix) for name in embodiment.commands if name.startswith(prefix)]
         ui = WebEvalUI(
             task=task,
+            arms=arms,
             port=port,
             fps=fps,
             width=width,

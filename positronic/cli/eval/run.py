@@ -26,8 +26,9 @@ logger = logging.getLogger(__name__)
 class Driver:
     """An attended operator surface: the directive source ``main`` wires into the Harness.
 
-    Driver configs produce a factory called with the resolved local output directory, since
-    the directory exists only after ``pos3.sync`` inside ``main``.
+    Driver configs produce a factory called with the resolved local output directory (which exists
+    only after ``pos3.sync`` inside ``main``) and the embodiment, whose command channels name the
+    manual-command targets.
     """
 
     gui: pimm.ControlSystem | None
@@ -125,7 +126,7 @@ def main(
     wrap,
     evals: list[Eval] | None = None,
     embodiment: Embodiment | None = None,
-    driver: Callable[[Path | None], Driver] | None = None,
+    driver: Callable[[Path | None, Embodiment], Driver] | None = None,
     output_dir: str | Path | None = None,
     show_gui: bool = False,
 ):
@@ -158,7 +159,17 @@ def main(
     on_complete = _completion_sink(policy)
     try:
         if driver is not None:
-            _run_world(policy, embodiment, None, None, driver(output_dir), output_dir, show_gui, on_complete, wrap=wrap)
+            _run_world(
+                policy,
+                embodiment,
+                None,
+                None,
+                driver(output_dir, embodiment),
+                output_dir,
+                show_gui,
+                on_complete,
+                wrap=wrap,
+            )
         else:
             for ev in evals:
                 _run_world(
