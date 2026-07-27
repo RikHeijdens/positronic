@@ -190,6 +190,9 @@
           pc.addTransceiver('video', { direction: 'recvonly' });
 
           pc.addEventListener('track', (event) => {
+            // Run the playout buffer as hot as the link allows — the default target absorbs WAN-grade
+            // jitter this LAN feed doesn't have.
+            if ('jitterBufferTarget' in event.receiver) event.receiver.jitterBufferTarget = 0;
             video.srcObject = event.streams[0];
             video.play().catch(() => {});
           });
