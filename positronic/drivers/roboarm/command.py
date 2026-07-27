@@ -43,11 +43,12 @@ class JointDelta:
 
 @dataclass
 class CartesianDelta:
-    """Move the end-effector by a world-frame pose delta from its current measured pose.
+    """Move the end-effector by a world-frame pose delta from its current pose.
 
-    A one-shot relative motion: the driver composes ``delta`` onto the pose it measures the moment the
-    command is consumed, never re-applying it. Unlike ``JointDelta`` this is end-effector space, not joint
-    space.
+    A one-shot relative motion: the driver composes ``delta`` onto the current pose the moment the command
+    is consumed, never re-applying it. Unlike ``JointDelta`` this is end-effector space, not joint space.
+    YAM anchors onto the setpoint it holds, so consecutive deltas integrate exactly (controller sag never
+    accumulates); Franka anchors onto the measured pose. TODO: unify Franka onto setpoint anchoring.
     """
 
     TYPE = 'cartesian_delta'

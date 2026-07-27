@@ -236,7 +236,9 @@ class Robot(pimm.ControlSystem):
                         case command.CartesianPosition(pose):
                             q_target = self._ik_or_hold(kin, pose, q, q_target)
                         case command.CartesianDelta(delta):
-                            target = command.apply_cartesian_delta(self._base_pose * kin.fk(q), delta)
+                            # Anchor to the held setpoint, not the measured pose: the PD sag between them
+                            # would re-bake into every delta, so successive jogs drift toward gravity.
+                            target = command.apply_cartesian_delta(self._base_pose * kin.fk(q_target), delta)
                             q_target = self._ik_or_hold(kin, target, q, q_target)
                         case _:
                             raise NotImplementedError(f'Unsupported command {cmd}')
